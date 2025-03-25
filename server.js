@@ -9,6 +9,11 @@ const app = express();
 const PORT = process.env.PORT || 5002;
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
+
+app.get("/", (req, res) => {
+    res.send("Gym Membership Backend API is Running 🚀");
+});
+
 // Middleware
 app.use(express.json());
 app.use(cors());
