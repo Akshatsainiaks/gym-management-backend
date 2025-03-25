@@ -7,7 +7,7 @@ const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 5002;
-const MONGO_URI = process.env.MONGO_URI ;
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/gym_db";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // Validate .env variables
@@ -15,8 +15,6 @@ if (!process.env.MONGO_URI) {
     console.error("❌ ERROR: MONGO_URI is not defined in .env");
     process.exit(1);
 }
-console.log("Mongo URI:", process.env.MONGO_URI);
-
 
 if (!process.env.JWT_SECRET) {
     console.warn("⚠️ WARNING: JWT_SECRET is missing. Using default secret.");
