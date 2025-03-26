@@ -6,153 +6,166 @@ const jwt = require("jsonwebtoken");
 const cors = require("cors");
 
 const app = express();
-const PORT = process.env.PORT || 5002;
-const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/gym_db";
+const PORT = process.env.PORT || 5004;
+const MONGO_URI = process.env.MONGO_URI;
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-// Validate .env variables
-if (!process.env.MONGO_URI) {
-    console.error("❌ ERROR: MONGO_URI is not defined in .env");
-    process.exit(1);
-}
-
-if (!process.env.JWT_SECRET) {
-    console.warn("⚠️ WARNING: JWT_SECRET is missing. Using default secret.");
-}
 
 // Middleware
 app.use(express.json());
-app.use(cors({
-    origin: "*", // Allow all origins (Adjust if needed)
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(cors());
 
-// ✅ MongoDB Connection
-mongoose.connect(MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-}).then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => {
-      console.error("❌ MongoDB Connection Error:", err);
-      process.exit(1);
-  });
+// MongoDB Connection with Enhanced Error Handling
+const connectDB = async () => {
+    try {
+        await mongoose.connect(MONGO_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 5000, // Prevents long connection delays
+        });
+        console.log("✅ MongoDB Connected...");
+    } catch (error) {
+        console.error("❌ MongoDB Connection Error:", error.message);
+        process.exit(1); // Stop server if DB connection fails
+    }
+};
+connectDB();
 
-// ✅ User Schema
+// User Schema
 const UserSchema = new mongoose.Schema({
     name: String,
-    email: { type: String, unique: true },
+    email: String,
     password: String,
-    membership: Boolean,
+    membership: { type: Boolean, default: false },
+    attendance: { type: Number, default: 0 },
     paymentDetails: {
+        plan: String,
         amount: Number,
         method: String,
-        date: Date
-    }
+        date: Date,
+    },
+    purchasedProteins: [
+        {
+            productName: String,
+            price: Number,
+            quantity: Number,
+            purchaseDate: Date,
+        }
+    ]
 });
+
 const User = mongoose.model("User", UserSchema);
 
-// ✅ Root Route
-app.get("/", (req, res) => {
-    res.send("Gym Membership Backend API is Running 🚀");
-});
-
-// ✅ Register Endpoint
+// Register User
 app.post("/api/register", async (req, res) => {
-    const { name, email, password } = req.body;
-
     try {
+        const { name, email, password } = req.body;
+
         let user = await User.findOne({ email });
-        if (user) return res.status(400).json({ success: false, message: "User already exists" });
+        if (user) return res.status(400).json({ message: "User already exists" });
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        user = new User({ name, email, password: hashedPassword, membership: false });
-        await user.save();
+        user = new User({ name, email, password: hashedPassword });
 
+        await user.save();
         res.json({ success: true, message: "User registered successfully" });
     } catch (error) {
-        console.error("❌ Register Error:", error);
-        res.status(500).json({ success: false, message: "Server Error" });
+        console.error("Register Error:", error);
+        res.status(500).json({ success: false, message: "Server error" });
     }
 });
 
-// ✅ Login Endpoint
+// Login User
 app.post("/api/login", async (req, res) => {
-    const { email, password } = req.body;
-
     try {
+        const { email, password } = req.body;
         const user = await User.findOne({ email });
-        if (!user) return res.status(400).json({ success: false, message: "Invalid credentials" });
+
+        if (!user) return res.status(400).json({ message: "User not found" });
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ success: false, message: "Invalid credentials" });
+        if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
-        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "1h" });
+        const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1h" });
 
-        res.json({ success: true, userId: user._id, token });
+        res.json({ success: true, token, userId: user._id });
     } catch (error) {
-        console.error("❌ Login Error:", error);
-        res.status(500).json({ success: false, message: "Server Error" });
+        console.error("Login Error:", error);
+        res.status(500).json({ success: false, message: "Server error" });
     }
 });
 
-// ✅ Buy Membership Route
-app.post("/buy-membership/:id", async (req, res) => {
-  const token = req.headers.authorization?.split(" ")[1];
-
-  if (!token) return res.status(401).json({ success: false, message: "Unauthorized" });
-
-  try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      const user = await User.findById(decoded.userId);
-
-      if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-      if (user.membership) {
-          return res.status(400).json({ success: false, message: "Membership already active" });
-      }
-
-      const { plan, paymentMethod } = req.body;
-      let price = 0;
-
-      if (plan === "Monthly Plan") price = 500;
-      else if (plan === "Quarterly Plan") price = 1200;
-      else if (plan === "Yearly Plan") price = 4000;
-      else return res.status(400).json({ success: false, message: "Invalid plan" });
-
-      user.membership = true;
-      user.paymentDetails = {
-          amount: price,
-          method: paymentMethod,
-          date: new Date(),
-      };
-      await user.save();
-
-      res.json({ success: true, message: "Membership activated", paymentDetails: user.paymentDetails });
-  } catch (error) {
-      console.error("❌ Buy Membership Error:", error);
-      res.status(401).json({ success: false, message: "Invalid token" });
-  }
-});
-
-// ✅ Get User Details
-app.get("/user/:id", async (req, res) => {
-    const token = req.headers.authorization?.split(" ")[1];
-
-    if (!token) return res.status(401).json({ success: false, message: "Unauthorized" });
-
+// Get User Details
+app.get("/api/user/:id", async (req, res) => {
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const user = await User.findById(decoded.userId).select("-password");
-
-        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+        const user = await User.findById(req.params.id).select("-password");
+        if (!user) return res.status(404).json({ message: "User not found" });
 
         res.json(user);
     } catch (error) {
-        console.error("❌ Get User Error:", error);
-        res.status(401).json({ success: false, message: "Invalid token" });
+        console.error("Get User Error:", error);
+        res.status(500).json({ message: "Server error" });
     }
 });
 
-// ✅ Start Server
+// Buy Membership
+app.post("/api/buy-membership/:id", async (req, res) => {
+    try {
+        const { plan, paymentMethod } = req.body;
+        const plans = {
+            "Monthly Plan": 500,
+            "Quarterly Plan": 1200,
+            "Yearly Plan": 4000,
+        };
+
+        if (!plans[plan]) return res.status(400).json({ message: "Invalid plan selected" });
+
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        user.membership = true;
+        user.paymentDetails = {
+            plan,
+            amount: plans[plan],
+            method: paymentMethod,
+            date: new Date(),
+        };
+
+        await user.save();
+        res.json({ success: true, message: "Membership purchased successfully", paymentDetails: user.paymentDetails });
+    } catch (error) {
+        console.error("Buy Membership Error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// 🏋️‍♂️ **Buy Protein API**
+app.post("/api/buy-protein/:id", async (req, res) => {
+    try {
+        const { productName, price, quantity } = req.body;
+
+        if (!productName || !price || !quantity) {
+            return res.status(400).json({ message: "Missing required fields" });
+        }
+
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const newPurchase = {
+            productName,
+            price,
+            quantity,
+            purchaseDate: new Date(),
+        };
+
+        user.purchasedProteins.push(newPurchase);
+        await user.save();
+
+        res.json({ success: true, message: "Protein purchased successfully", purchase: newPurchase });
+    } catch (error) {
+        console.error("Buy Protein Error:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// Start Server
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
