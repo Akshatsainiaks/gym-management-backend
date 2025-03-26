@@ -7,33 +7,31 @@ const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 5004;
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/gym_db";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // Middleware
 app.use(express.json());
 app.use(cors());
 
-// MongoDB Connection with Enhanced Error Handling
-const connectDB = async () => {
-    try {
-        await mongoose.connect(MONGO_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            serverSelectionTimeoutMS: 5000, // Prevents long connection delays
-        });
-        console.log("✅ MongoDB Connected...");
-    } catch (error) {
-        console.error("❌ MongoDB Connection Error:", error.message);
-        process.exit(1); // Stop server if DB connection fails
-    }
-};
-connectDB();
+// Default Route (Fixes "Cannot GET /" error)
+app.get("/", (req, res) => {
+    res.send("🚀 Gym Management Backend is Running!");
+});
+
+// MongoDB Connection
+mongoose
+    .connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log("✅ MongoDB Connected"))
+    .catch((error) => {
+        console.error("❌ MongoDB Connection Error:", error);
+        process.exit(1); // Exit process if DB connection fails
+    });
 
 // User Schema
 const UserSchema = new mongoose.Schema({
     name: String,
-    email: String,
+    email: { type: String, unique: true },
     password: String,
     membership: { type: Boolean, default: false },
     attendance: { type: Number, default: 0 },
@@ -69,7 +67,7 @@ app.post("/api/register", async (req, res) => {
         await user.save();
         res.json({ success: true, message: "User registered successfully" });
     } catch (error) {
-        console.error("Register Error:", error);
+        console.error(error);
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
@@ -89,7 +87,7 @@ app.post("/api/login", async (req, res) => {
 
         res.json({ success: true, token, userId: user._id });
     } catch (error) {
-        console.error("Login Error:", error);
+        console.error(error);
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
@@ -102,7 +100,7 @@ app.get("/api/user/:id", async (req, res) => {
 
         res.json(user);
     } catch (error) {
-        console.error("Get User Error:", error);
+        console.error(error);
         res.status(500).json({ message: "Server error" });
     }
 });
@@ -133,12 +131,12 @@ app.post("/api/buy-membership/:id", async (req, res) => {
         await user.save();
         res.json({ success: true, message: "Membership purchased successfully", paymentDetails: user.paymentDetails });
     } catch (error) {
-        console.error("Buy Membership Error:", error);
+        console.error(error);
         res.status(500).json({ message: "Server error" });
     }
 });
 
-// 🏋️‍♂️ **Buy Protein API**
+// 🏋️‍♂️ Buy Protein API
 app.post("/api/buy-protein/:id", async (req, res) => {
     try {
         const { productName, price, quantity } = req.body;
@@ -162,7 +160,7 @@ app.post("/api/buy-protein/:id", async (req, res) => {
 
         res.json({ success: true, message: "Protein purchased successfully", purchase: newPurchase });
     } catch (error) {
-        console.error("Buy Protein Error:", error);
+        console.error(error);
         res.status(500).json({ message: "Server error" });
     }
 });
